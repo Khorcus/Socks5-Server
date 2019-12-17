@@ -39,7 +39,7 @@ public:
         spawn(strand, [this](const yield_context &yield) {
             try {
                 error_code ec;
-                timer.expires_from_now(std::chrono::seconds(15));
+                timer.expires_from_now(std::chrono::seconds(timeout));
                 std::size_t n = client_socket.async_read_some(buffer(client_buf, 258), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof || n)) {
@@ -208,8 +208,8 @@ private:
 
 int main(int argc, char *argv[]) {
     try {
-        if (argc != 2) {
-            std::cerr << "Usage: echo_server <port>\n";
+        if (argc != 4) {
+            std::cerr << "Usage: echo_server <port> <buffer size> <timeout>\n";
             return 1;
         }
         io_context context;
@@ -221,26 +221,28 @@ int main(int argc, char *argv[]) {
             context.stop();
         });
 
-        spawn(context, [&context, port = std::atoi(argv[1])](const yield_context &yield) {
-            tcp::acceptor acceptor{context};
-            tcp::endpoint ep{tcp::v4(), (uint16_t) port};
-            acceptor.open(ep.protocol());
-            acceptor.bind(ep);
-            acceptor.listen();
-            for (;;) {
-                tcp::socket socket{make_strand(acceptor.get_executor())};
-                error_code ec;
-                acceptor.async_accept(socket, yield[ec]);
-                if (ec == boost::asio::error::operation_aborted) {
-                    return;
-                }
-                if (ec)
-                    std::cerr << "Failed to accept connection: " << ec.message() << std::endl;
-                if (!ec) {
-                    std::make_shared<session>(context, std::move(socket), 4096, 10)->start();
-                }
-            }
-        });
+        spawn(context,
+              [&context, port = std::atoi(argv[1]), buffer_size = std::atoi(argv[2]), timeout = std::atoi(argv[3])](
+                      const yield_context &yield) {
+                  tcp::acceptor acceptor{context};
+                  tcp::endpoint ep{tcp::v4(), (uint16_t) port};
+                  acceptor.open(ep.protocol());
+                  acceptor.bind(ep);
+                  acceptor.listen();
+                  for (;;) {
+                      tcp::socket socket{make_strand(acceptor.get_executor())};
+                      error_code ec;
+                      acceptor.async_accept(socket, yield[ec]);
+                      if (ec == boost::asio::error::operation_aborted) {
+                          return;
+                      }
+                      if (ec)
+                          std::cerr << "Failed to accept connection: " << ec.message() << std::endl;
+                      if (!ec) {
+                          std::make_shared<session>(context, std::move(socket), buffer_size, timeout)->start();
+                      }
+                  }
+              });
 
         context.run();
     }
