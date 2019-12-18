@@ -1,6 +1,7 @@
 #include "session.hpp"
 
 namespace socks {
+    //TODO: Спросить про strand и conext
     session::session(io_context &context, tcp::socket socket, std::size_t buffer_size, std::size_t timeout)
             : client_socket(std::move(socket)),
               remote_socket(context),
@@ -18,7 +19,7 @@ namespace socks {
             try {
                 error_code ec;
                 timer.expires_from_now(std::chrono::seconds(timeout));
-                std::size_t n = client_socket.async_read_some(buffer(client_buf, 258), yield[ec]);
+                std::size_t n = client_socket.async_read_some(buffer(client_buf, 257), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof || n)) {
                         std::cerr << "Failed to read connection request: " << ec.message() << std::endl;
@@ -31,7 +32,7 @@ namespace socks {
                     return;
                 }
                 if (client_buf[0] != 0x05) {
-                    std::cerr << "Connection request with unsupported VER: " << (uint8_t) client_buf[0]
+                    std::cout << "Connection request with unsupported VER: " << (uint8_t) client_buf[0]
                               << std::endl;
                     return;
                 }
@@ -43,7 +44,7 @@ namespace socks {
                 }
                 async_write(client_socket, buffer(connect_answer, 2), yield[ec]);
                 if (client_buf[1] == 0xFF) {
-                    std::cerr << "Connection request with unsupported METHOD: "
+                    std::cout << "Connection request with unsupported METHOD: "
                               << (uint8_t) client_buf[1]
                               << std::endl;
                     return;
@@ -65,12 +66,12 @@ namespace socks {
                     if (client_buf[3] == 0x03) {
                         resolve_domain_name(yield, ec);
                     } else {
-                        ep = tcp::endpoint(address_v4(ntohl(*((uint32_t *) &client_buf[4]))),
-                                           ntohs(*((uint16_t *) &client_buf[8])));
+                        ep = tcp::endpoint(address_v4(endian_reverse(*((uint32_t *) &client_buf[4]))),
+                                           endian_reverse(*((uint16_t *) &client_buf[8])));
                     }
                 }
                 if (command_answer[1] == 0x00) {
-                    std::cout << "Connecting to remote server: " << ep.address().to_string() << std::endl;
+                    std::cout << "Connecting to remote server: " << endpoint_to_string() << std::endl;
                     remote_socket.async_connect(ep, yield[ec]);
                     if (ec) {
                         //TODO: Спросить про то, какой код выставить
@@ -96,7 +97,7 @@ namespace socks {
                 echo(remote_socket, client_socket, yield);
             }
             catch (std::exception &e) {
-                std::cout << "Exception: " << e.what();
+                std::cerr << "Exception: " << e.what();
                 client_socket.close();
                 remote_socket.close();
                 timer.cancel();
@@ -104,10 +105,12 @@ namespace socks {
         });
 
         boost::asio::spawn(strand, [this, self](const boost::asio::yield_context &yield) {
+            error_code ec;
             while (client_socket.is_open()) {
                 boost::system::error_code ignored_ec;
                 timer.async_wait(yield[ignored_ec]);
                 if (timer.expires_from_now() <= std::chrono::seconds(0)) {
+                    std::cout << "Close connection with " << socket_to_string(client_socket, ec) << std::endl;
                     client_socket.close();
                 }
             }
@@ -167,6 +170,20 @@ namespace socks {
             return;
         }
         ep = *endpoint_iterator;
+    }
+
+    std::string session::socket_to_string(tcp::socket &socket, error_code ec) {
+        tcp::endpoint endpoint = client_socket.remote_endpoint(ec);
+        if (ec) {
+            return "closed socket";
+        }
+        return endpoint.address().to_string() + " " + std::to_string(endian_reverse(endpoint.port()));
+
+    }
+
+    std::string session::endpoint_to_string() {
+        return ep.address().to_string() + " " +
+               std::to_string(endian_reverse(ep.port()));
     }
 }
 

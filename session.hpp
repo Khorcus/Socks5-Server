@@ -40,6 +40,10 @@ namespace socks {
 
         void resolve_domain_name(const yield_context &yield, error_code ec);
 
+        std::string socket_to_string(tcp::socket &socket, error_code ec);
+
+        std::string endpoint_to_string();
+
         tcp::socket client_socket;
         tcp::socket remote_socket;
         boost::asio::strand<io_context::executor_type> strand;
