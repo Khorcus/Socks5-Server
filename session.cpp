@@ -15,24 +15,24 @@ namespace socks {
 
     void session::start() {
         auto self(shared_from_this());
-        spawn(strand, [this](const yield_context &yield) {
+        spawn(strand, [self](const yield_context &yield) {
             try {
                 error_code ec;
-                timer.expires_from_now(std::chrono::seconds(timeout));
-                async_read(client_socket, buffer(client_buf, 2), yield[ec]);
+                self->timer.expires_from_now(std::chrono::seconds(self->timeout));
+                async_read(self->client_socket, buffer(self->client_buf, 2), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof)) {
                         std::cerr << "Failed to read connection request: " << ec.message() << std::endl;
                     }
                     return;
                 }
-                if (client_buf[0] != 0x05) {
-                    std::cout << "Connection request with unsupported VER: " << (uint8_t) client_buf[0]
+                if (self->client_buf[0] != 0x05) {
+                    std::cout << "Connection request with unsupported VER: " << (uint8_t) self->client_buf[0]
                               << std::endl;
                     return;
                 }
-                uint8_t num_methods = client_buf[1];
-                async_read(client_socket, buffer(client_buf, num_methods), yield[ec]);
+                uint8_t num_methods = self->client_buf[1];
+                async_read(self->client_socket, buffer(self->client_buf, num_methods), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof)) {
                         std::cerr << "Failed to read connection request: " << ec.message() << std::endl;
@@ -40,15 +40,15 @@ namespace socks {
                     return;
                 }
                 for (uint8_t method = 0; method < num_methods; ++method) {
-                    if (client_buf[method] == 0x00) {
-                        connect_answer[1] = 0x00;
+                    if (self->client_buf[method] == 0x00) {
+                        self->connect_answer[1] = 0x00;
                         break;
                     }
                 }
-                async_write(client_socket, buffer(connect_answer, 2), yield[ec]);
-                if (client_buf[1] == 0xFF) {
+                async_write(self->client_socket, buffer(self->connect_answer, 2), yield[ec]);
+                if (self->client_buf[1] == 0xFF) {
                     std::cout << "Connection request with unsupported METHOD: "
-                              << (uint8_t) client_buf[1]
+                              << (uint8_t) self->client_buf[1]
                               << std::endl;
                     return;
                 }
@@ -58,85 +58,88 @@ namespace socks {
                     }
                     return;
                 }
-                async_read(client_socket, buffer(client_buf, 4), yield[ec]);
+                async_read(self->client_socket, buffer(self->client_buf, 4), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof)) {
                         std::cerr << "Failed to read command request: " << ec.message() << std::endl;
                     }
                     return;
                 }
-                if (is_command_request_valid()) {
-                    if (client_buf[3] == 0x03) {
-                        async_read(client_socket, buffer(client_buf, 1), yield[ec]);
+                if (self->is_command_request_valid()) {
+                    if (self->client_buf[3] == 0x03) {
+                        async_read(self->client_socket, buffer(self->client_buf, 1), yield[ec]);
                         if (ec) {
                             if (ec != operation_aborted && (ec != eof)) {
                                 std::cerr << "Failed to read command request: " << ec.message() << std::endl;
                             }
                             return;
                         }
-                        uint8_t domain_name_length = client_buf[0];
-                        async_read(client_socket, buffer(client_buf, domain_name_length + 2), yield[ec]);
+                        uint8_t domain_name_length = self->client_buf[0];
+                        async_read(self->client_socket, buffer(self->client_buf, domain_name_length + 2), yield[ec]);
                         if (ec) {
                             if (ec != operation_aborted && (ec != eof)) {
                                 std::cerr << "Failed to read command request: " << ec.message() << std::endl;
                             }
                             return;
                         }
-                        resolve_domain_name(yield, ec, domain_name_length);
+                        self->resolve_domain_name(yield, ec, domain_name_length);
                     } else {
-                        async_read(client_socket, buffer(client_buf, 6), yield[ec]);
+                        async_read(self->client_socket, buffer(self->client_buf, 6), yield[ec]);
                         if (ec) {
                             if (ec != operation_aborted && (ec != eof)) {
                                 std::cerr << "Failed to read command request: " << ec.message() << std::endl;
                             }
                             return;
                         }
-                        ep = tcp::endpoint(address_v4(endian_reverse(*((uint32_t *) &client_buf[0]))),
-                                           endian_reverse(*((uint16_t *) &client_buf[4])));
+                        self->ep = tcp::endpoint(address_v4(endian_reverse(*((uint32_t *) &self->client_buf[0]))),
+                                                 endian_reverse(*((uint16_t *) &self->client_buf[4])));
                     }
                 }
-                if (command_answer[1] == 0x00) {
-                    std::cout << "Connecting to remote server: " << endpoint_to_string() << std::endl;
-                    remote_socket.async_connect(ep, yield[ec]);
+                if (self->command_answer[1] == 0x00) {
+                    std::cout << "Connecting to remote server: " << self->endpoint_to_string() << std::endl;
+                    self->remote_socket.async_connect(self->ep, yield[ec]);
                     if (ec) {
                         //TODO: Спросить про то, какой код выставить
-                        command_answer[1] = 0x03;
+                        self->command_answer[1] = 0x03;
                     }
                 }
-                if (command_answer[1] == 0x00) {
-                    uint32_t real_local_ip = endian_reverse(remote_socket.local_endpoint().address().to_v4().to_uint());
-                    uint16_t real_local_port = endian_reverse(remote_socket.local_endpoint().port());
-                    std::memcpy(&command_answer[4], &real_local_ip, 4);
-                    std::memcpy(&command_answer[8], &real_local_port, 2);
+                if (self->command_answer[1] == 0x00) {
+                    uint32_t real_local_ip = endian_reverse(
+                            self->remote_socket.local_endpoint().address().to_v4().to_uint());
+                    uint16_t real_local_port = endian_reverse(self->remote_socket.local_endpoint().port());
+                    std::memcpy(&self->command_answer[4], &real_local_ip, 4);
+                    std::memcpy(&self->command_answer[8], &real_local_port, 2);
                 }
-                async_write(client_socket, buffer(command_answer, 10), yield[ec]);
+                async_write(self->client_socket, buffer(self->command_answer, 10), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted) {
                         std::cerr << "Failed to write command response" << std::endl;
                     }
                     return;
                 }
-                boost::asio::spawn(strand, [this](const yield_context &yield) {
-                    echo(client_socket, remote_socket, yield);
+                // копию shared ptr
+                boost::asio::spawn(self->strand, [self](const yield_context &yield) {
+                    self->echo(self->client_socket, self->remote_socket, yield);
                 });
-                echo(remote_socket, client_socket, yield);
+                self->echo(self->remote_socket, self->client_socket, yield);
             }
             catch (std::exception &e) {
                 std::cerr << "Exception: " << e.what();
-                client_socket.close();
-                remote_socket.close();
-                timer.cancel();
+                self->client_socket.close();
+                self->remote_socket.close();
+                self->timer.cancel();
             }
         });
 
-        boost::asio::spawn(strand, [this, self](const boost::asio::yield_context &yield) {
+        boost::asio::spawn(strand, [self](const boost::asio::yield_context &yield) {
             error_code ec;
-            while (client_socket.is_open()) {
+            while (self->client_socket.is_open()) {
                 boost::system::error_code ignored_ec;
-                timer.async_wait(yield[ignored_ec]);
-                if (timer.expires_from_now() <= std::chrono::seconds(0)) {
-                    std::cout << "Close connection with " << socket_to_string(client_socket, ec) << std::endl;
-                    client_socket.close();
+                self->timer.async_wait(yield[ignored_ec]);
+                if (self->timer.expires_from_now() <= std::chrono::seconds(0)) {
+                    std::cout << "Close connection with " << self->socket_to_string(self->client_socket, ec)
+                              << std::endl;
+                    self->client_socket.close();
                 }
             }
         });
@@ -149,11 +152,11 @@ namespace socks {
             std::size_t n = src_socket.async_read_some(buffer(buf), yield[ec]);
             //TODO: Спросить, правильно ли
             if (ec) {
-                break;
+                return;
             }
             dst_socket.async_write_some(boost::asio::buffer(buf, n), yield[ec]);
             if (ec) {
-                break;
+                return;
             }
         }
     }
