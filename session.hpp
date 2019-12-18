@@ -8,6 +8,7 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/asio/read.hpp>
+#include <boost/beast/core/tcp_stream.hpp>
 #include <boost/endian/conversion.hpp>
 #include <iostream>
 #include <memory>
@@ -24,19 +25,21 @@ namespace socks {
     using boost::asio::error::operation_aborted;
     using boost::asio::error::eof;
     using boost::asio::spawn;
+    using boost::beast::tcp_stream;
     using boost::system::error_code;
     using boost::endian::endian_reverse;
 
 
     class session : public std::enable_shared_from_this<session> {
     public:
-        explicit session(io_context &context, tcp::socket socket, std::size_t buffer_size, std::size_t timeout);
+        explicit session(tcp::socket client_socket, tcp::socket remote_socket, std::size_t buffer_size,
+                         std::size_t timeout);
 
         void start();
 
     private:
 
-        void echo(tcp::socket &src_socket, tcp::socket &dst_socket, const yield_context &yield);
+        void echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, std::shared_ptr<session> self);
 
         bool is_command_request_valid();
 
@@ -46,17 +49,15 @@ namespace socks {
 
         std::string endpoint_to_string();
 
-        tcp::socket client_socket;
-        tcp::socket remote_socket;
-        boost::asio::strand<io_context::executor_type> strand;
-        boost::asio::steady_timer timer;
+        tcp_stream client_stream;
+        tcp_stream remote_stream;
         std::vector<uint8_t> client_buf;
         uint8_t connect_answer[2] = {0x05, 0xFF};
         uint8_t command_answer[10] = {0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
         tcp::endpoint ep;
         tcp::resolver resolver;
         std::size_t buffer_size;
-        std::size_t timeout;
+        std::chrono::seconds timeout;
     };
 }
 

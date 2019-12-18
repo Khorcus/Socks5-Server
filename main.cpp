@@ -27,6 +27,7 @@ int main(int argc, char *argv[]) {
                   acceptor.listen();
                   for (;;) {
                       tcp::socket socket{make_strand(acceptor.get_executor())};
+                      tcp::socket remote_socket{make_strand(context)};
                       error_code ec;
                       acceptor.async_accept(socket, yield[ec]);
                       if (ec == boost::asio::error::operation_aborted) {
@@ -35,7 +36,8 @@ int main(int argc, char *argv[]) {
                       if (ec)
                           std::cerr << "Failed to accept connection: " << ec.message() << std::endl;
                       if (!ec) {
-                          std::make_shared<session>(context, std::move(socket), buffer_size, timeout)->start();
+                          std::make_shared<session>(std::move(socket), std::move(remote_socket), buffer_size,
+                                                    timeout)->start();
                       }
                   }
               });
