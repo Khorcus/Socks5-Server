@@ -7,6 +7,7 @@
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
+#include <boost/asio/read.hpp>
 #include <boost/endian/conversion.hpp>
 #include <iostream>
 #include <memory>
@@ -18,6 +19,7 @@ namespace socks {
     using boost::asio::yield_context;
     using boost::asio::io_context;
     using boost::asio::async_write;
+    using boost::asio::async_read;
     using boost::asio::buffer;
     using boost::asio::error::operation_aborted;
     using boost::asio::error::eof;
@@ -36,9 +38,9 @@ namespace socks {
 
         void echo(tcp::socket &src_socket, tcp::socket &dst_socket, const yield_context &yield);
 
-        bool is_command_request_valid(std::size_t n);
+        bool is_command_request_valid();
 
-        void resolve_domain_name(const yield_context &yield, error_code ec);
+        void resolve_domain_name(const yield_context &yield, error_code ec, uint8_t domain_name_length);
 
         std::string socket_to_string(tcp::socket &socket, error_code ec);
 

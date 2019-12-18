@@ -19,16 +19,11 @@ namespace socks {
             try {
                 error_code ec;
                 timer.expires_from_now(std::chrono::seconds(timeout));
-                std::size_t n = client_socket.async_read_some(buffer(client_buf, 257), yield[ec]);
+                async_read(client_socket, buffer(client_buf, 2), yield[ec]);
                 if (ec) {
-                    if (ec != operation_aborted && (ec != eof || n)) {
+                    if (ec != operation_aborted && (ec != eof)) {
                         std::cerr << "Failed to read connection request: " << ec.message() << std::endl;
                     }
-                    return;
-                }
-                uint8_t num_methods = client_buf[1];
-                if (n < 3 || n != num_methods + 2) {
-                    std::cerr << "Invalid connection request" << std::endl;
                     return;
                 }
                 if (client_buf[0] != 0x05) {
@@ -36,8 +31,16 @@ namespace socks {
                               << std::endl;
                     return;
                 }
+                uint8_t num_methods = client_buf[1];
+                async_read(client_socket, buffer(client_buf, num_methods), yield[ec]);
+                if (ec) {
+                    if (ec != operation_aborted && (ec != eof)) {
+                        std::cerr << "Failed to read connection request: " << ec.message() << std::endl;
+                    }
+                    return;
+                }
                 for (uint8_t method = 0; method < num_methods; ++method) {
-                    if (client_buf[2 + method] == 0x00) {
+                    if (client_buf[method] == 0x00) {
                         connect_answer[1] = 0x00;
                         break;
                     }
@@ -55,19 +58,41 @@ namespace socks {
                     }
                     return;
                 }
-                n = client_socket.async_read_some(buffer(client_buf, 261), yield[ec]);
+                async_read(client_socket, buffer(client_buf, 4), yield[ec]);
                 if (ec) {
-                    if (ec != operation_aborted && (ec != eof || n)) {
+                    if (ec != operation_aborted && (ec != eof)) {
                         std::cerr << "Failed to read command request: " << ec.message() << std::endl;
                     }
                     return;
                 }
-                if (is_command_request_valid(n)) {
+                if (is_command_request_valid()) {
                     if (client_buf[3] == 0x03) {
-                        resolve_domain_name(yield, ec);
+                        async_read(client_socket, buffer(client_buf, 1), yield[ec]);
+                        if (ec) {
+                            if (ec != operation_aborted && (ec != eof)) {
+                                std::cerr << "Failed to read command request: " << ec.message() << std::endl;
+                            }
+                            return;
+                        }
+                        uint8_t domain_name_length = client_buf[0];
+                        async_read(client_socket, buffer(client_buf, domain_name_length + 2), yield[ec]);
+                        if (ec) {
+                            if (ec != operation_aborted && (ec != eof)) {
+                                std::cerr << "Failed to read command request: " << ec.message() << std::endl;
+                            }
+                            return;
+                        }
+                        resolve_domain_name(yield, ec, domain_name_length);
                     } else {
-                        ep = tcp::endpoint(address_v4(endian_reverse(*((uint32_t *) &client_buf[4]))),
-                                           endian_reverse(*((uint16_t *) &client_buf[8])));
+                        async_read(client_socket, buffer(client_buf, 6), yield[ec]);
+                        if (ec) {
+                            if (ec != operation_aborted && (ec != eof)) {
+                                std::cerr << "Failed to read command request: " << ec.message() << std::endl;
+                            }
+                            return;
+                        }
+                        ep = tcp::endpoint(address_v4(endian_reverse(*((uint32_t *) &client_buf[0]))),
+                                           endian_reverse(*((uint16_t *) &client_buf[4])));
                     }
                 }
                 if (command_answer[1] == 0x00) {
@@ -133,8 +158,8 @@ namespace socks {
         }
     }
 
-    bool session::is_command_request_valid(std::size_t n) {
-        if (n < 10 || client_buf[2] != 0x00) {
+    bool session::is_command_request_valid() {
+        if (client_buf[2] != 0x00) {
             std::cout << "Invalid command request" << std::endl;
             command_answer[1] = 0xFF;
             return false;
@@ -157,10 +182,9 @@ namespace socks {
         return true;
     }
 
-    void session::resolve_domain_name(const yield_context &yield, error_code ec) {
-        uint8_t host_length = client_buf[4];
-        std::string remote_host(client_buf.begin() + 5, client_buf.begin() + host_length + 5);
-        std::string remote_port = std::to_string(endian_reverse(*((uint16_t *) &client_buf[5 + host_length])));
+    void session::resolve_domain_name(const yield_context &yield, error_code ec, uint8_t domain_name_length) {
+        std::string remote_host(client_buf.begin(), client_buf.begin() + domain_name_length);
+        std::string remote_port = std::to_string(endian_reverse(*((uint16_t *) &client_buf[domain_name_length])));
         tcp::resolver::query query(remote_host, remote_port);
         tcp::resolver::iterator endpoint_iterator = resolver.async_resolve(query, yield[ec]);
         if (ec) {
