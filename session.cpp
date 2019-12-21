@@ -134,7 +134,7 @@ namespace socks {
         });
     }
 
-    void session::echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, std::shared_ptr<session> self) {
+    void session::echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<session>& self) {
         error_code ec;
         std::vector<uint8_t> buf(buffer_size);
         for (;;) {

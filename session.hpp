@@ -39,7 +39,7 @@ namespace socks {
 
     private:
 
-        void echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, std::shared_ptr<session> self);
+        void echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<session>& self);
 
         bool is_command_request_valid();
 
