@@ -94,8 +94,8 @@ namespace socks {
                             }
                             return;
                         }
-                        self->ep = tcp::endpoint(address_v4(endian_reverse(*((uint32_t *) &self->client_buf[0]))),
-                                                 endian_reverse(*((uint16_t *) &self->client_buf[4])));
+                        self->ep = tcp::endpoint(address_v4(big_to_native(*((uint32_t * ) & self->client_buf[0]))),
+                                                 big_to_native(*((uint16_t * ) & self->client_buf[4])));
                     }
                 }
                 if (self->command_answer[1] == 0x00) {
@@ -108,9 +108,9 @@ namespace socks {
                     }
                 }
                 if (self->command_answer[1] == 0x00) {
-                    uint32_t real_local_ip = endian_reverse(
+                    uint32_t real_local_ip = big_to_native(
                             self->remote_stream.socket().local_endpoint().address().to_v4().to_uint());
-                    uint16_t real_local_port = endian_reverse(self->remote_stream.socket().local_endpoint().port());
+                    uint16_t real_local_port = big_to_native(self->remote_stream.socket().local_endpoint().port());
                     std::memcpy(&self->command_answer[4], &real_local_ip, 4);
                     std::memcpy(&self->command_answer[8], &real_local_port, 2);
                 }
@@ -134,7 +134,8 @@ namespace socks {
         });
     }
 
-    void session::echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<session>& self) {
+    void
+    session::echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<session> &self) {
         error_code ec;
         std::vector<uint8_t> buf(buffer_size);
         for (;;) {
@@ -177,7 +178,7 @@ namespace socks {
 
     void session::resolve_domain_name(const yield_context &yield, error_code ec, uint8_t domain_name_length) {
         std::string remote_host(client_buf.begin(), client_buf.begin() + domain_name_length);
-        std::string remote_port = std::to_string(endian_reverse(*((uint16_t *) &client_buf[domain_name_length])));
+        std::string remote_port = std::to_string(big_to_native(*((uint16_t *) &client_buf[domain_name_length])));
         tcp::resolver::query query(remote_host, remote_port);
         tcp::resolver::iterator endpoint_iterator = resolver.async_resolve(query, yield[ec]);
         if (ec) {
@@ -194,13 +195,13 @@ namespace socks {
         if (ec) {
             return "closed socket";
         }
-        return endpoint.address().to_string() + " " + std::to_string(endian_reverse(endpoint.port()));
+        return endpoint.address().to_string() + " " + std::to_string(big_to_native(endpoint.port()));
 
     }
 
     std::string session::endpoint_to_string() {
         return ep.address().to_string() + " " +
-               std::to_string(endian_reverse(ep.port()));
+               std::to_string(big_to_native(ep.port()));
     }
 }
 

@@ -27,7 +27,7 @@ namespace socks {
     using boost::asio::spawn;
     using boost::beast::tcp_stream;
     using boost::system::error_code;
-    using boost::endian::endian_reverse;
+    using boost::endian::big_to_native;
 
 
     class session : public std::enable_shared_from_this<session> {
