@@ -1,27 +1,29 @@
 #include "session/client_session.hpp"
 #include "session/server_session.hpp"
 #include "config/config.hpp"
+#include "crypto/crypto.hpp"
 
 using namespace socks;
 
 void usage() {
-    std::cerr << "Usage for server: server <buffer size> <timeout> <secret key> <server port>"
+    std::cerr << "Usage for server: server s <server port> <buffer size> <timeout> <secret key> <iv>"
               << std::endl;
     std::cerr
-            << "Usage for client: client <buffer size> <timeout> <secret key> <server port> <server ip> <client port>"
+            << "Usage for client: client c <client port> <buffer size> <timeout> "
+               "<secret key> <iv> <server ip> <server port>"
             << std::endl;
 }
 
 int main(int argc, char *argv[]) {
     try {
-        if (argc < 6) {
+        if (argc < 7) {
             usage();
             return 1;
         }
-        std::size_t buffer_size(std::stoi(argv[2]));
-        std::size_t timeout(std::stoi(argv[3]));
-        std::string secret_key(argv[4]);
-        uint16_t server_port(std::stoi(argv[5]));
+        std::size_t buffer_size(std::stoi(argv[3]));
+        std::size_t timeout(std::stoi(argv[4]));
+        std::vector<uint8_t> secret_key(argv[5], argv[5] + 256);
+        std::vector<uint8_t> iv(argv[6], argv[6] + 128);
 
         io_context context;
         boost::asio::signal_set stop_signals(context, SIGINT, SIGTERM);
@@ -33,7 +35,8 @@ int main(int argc, char *argv[]) {
         });
 
         if (!strcmp(argv[1], "s")) {
-            server_config config(buffer_size, timeout, secret_key, server_port);
+            uint16_t server_port(std::stoi(argv[2]));
+            server_config config(buffer_size, timeout, secret_key, iv, server_port);
 
             spawn(context, [&context, config](const yield_context &yield) {
                 tcp::acceptor acceptor{context};
@@ -62,10 +65,11 @@ int main(int argc, char *argv[]) {
             });
 
 
-        } else if (!strcmp(argv[1], "c") && argc == 8) {
-            std::string server_ip(argv[6]);
-            uint16_t client_port(std::stoi(argv[7]));
-            client_config config(buffer_size, timeout, secret_key, server_port, server_ip, client_port);
+        } else if (!strcmp(argv[1], "c") && argc == 9) {
+            uint16_t client_port(std::stoi(argv[2]));
+            std::string server_ip(argv[7]);
+            uint16_t server_port(std::stoi(argv[8]));
+            client_config config(buffer_size, timeout, secret_key, iv, server_port, server_ip, client_port);
 
             spawn(context, [&context, config](const yield_context &yield) {
                 tcp::acceptor acceptor{context};

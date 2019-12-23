@@ -7,7 +7,8 @@ namespace socks {
               client_buf(config.buffer_size),
               resolver(client_socket.get_executor()),
               config(config),
-              client_message_length() {
+              client_message_length(),
+              c(config.secret_key, config.iv) {
     }
 
     void server_session::start() {
@@ -56,8 +57,6 @@ namespace socks {
                     uint32_t real_local_ip = big_to_native(
                             self->remote_stream.socket().local_endpoint().address().to_v4().to_uint());
                     uint16_t real_local_port = big_to_native(self->remote_stream.socket().local_endpoint().port());
-                    std::cout << self->remote_stream.socket().local_endpoint().address().to_string() << std::endl;
-                    std::cout << (int) real_local_port << std::endl;
                     std::memcpy(&self->answer[4], &real_local_ip, 4);
                     std::memcpy(&self->answer[8], &real_local_port, 2);
                 }
@@ -70,9 +69,9 @@ namespace socks {
                     return;
                 }
                 boost::asio::spawn(self->client_stream.get_executor(), [self](const yield_context &yield) {
-                    self->echo(self->client_stream, self->remote_stream, yield, self);
+                    self->echo_from_client(yield);
                 });
-                self->echo(self->remote_stream, self->client_stream, yield, self);
+                self->echo_to_client(yield);
             }
             catch (std::exception &e) {
                 std::cerr << "Exception: " << e.what();
@@ -81,18 +80,46 @@ namespace socks {
         });
     }
 
-    void server_session::echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield,
-                              const std::shared_ptr<server_session> &self) {
+    void server_session::echo_from_client(const yield_context &yield) {
         error_code ec;
         std::vector<uint8_t> buf(config.buffer_size);
+        std::vector<uint8_t> dec_buf(config.buffer_size + 256);
         for (;;) {
-            src.expires_after(self->config.timeout);
-            std::size_t n = src.async_read_some(buffer(buf), yield[ec]);
+            client_stream.expires_after(config.timeout);
+            std::size_t n = client_stream.async_read_some(buffer(buf), yield[ec]);
+            std::cout << "from client " << n << std::endl;
             if (ec) {
                 return;
             }
-            dst.expires_after(self->config.timeout);
-            dst.async_write_some(boost::asio::buffer(buf, n), yield[ec]);
+            if (n == 0) {
+                return;
+            }
+            n = c.decrypt(buf.data(), n, &dec_buf[0]);
+            remote_stream.expires_after(config.timeout);
+            async_write(remote_stream, boost::asio::buffer(dec_buf, n), yield[ec]);
+            if (ec) {
+                return;
+            }
+        }
+    }
+
+    void server_session::echo_to_client(const yield_context &yield) {
+        error_code ec;
+        std::vector<uint8_t> buf(config.buffer_size);
+        std::vector<uint8_t> enc_buf(config.buffer_size + 256);
+        for (;;) {
+            remote_stream.expires_after(config.timeout);
+            std::size_t n = remote_stream.async_read_some(buffer(buf), yield[ec]);
+            if (ec) {
+                return;
+            }
+            if (n == 0) {
+                return;
+            }
+            n = c.encrypt(buf.data(), n, &enc_buf[0]);
+            std::cout << "to client " << n << std::endl;
+            client_stream.expires_after(config.timeout);
+            async_write(client_stream, boost::asio::buffer(enc_buf, n), yield[ec]);
             if (ec) {
                 return;
             }

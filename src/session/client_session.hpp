@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "../config/config.hpp"
+#include "../crypto/crypto.hpp"
 
 
 namespace socks {
@@ -41,8 +42,9 @@ namespace socks {
 
     private:
 
-        void
-        echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<client_session> &self);
+        void echo_from_server(const yield_context &yield);
+
+        void echo_to_server(const yield_context &yield);
 
         bool is_command_request_valid();
 
@@ -55,6 +57,7 @@ namespace socks {
         tcp::resolver resolver;
         client_config config;
         uint8_t server_message_length;
+        crypto c;
     };
 }
 
