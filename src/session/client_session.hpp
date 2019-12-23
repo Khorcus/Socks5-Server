@@ -1,5 +1,5 @@
-#ifndef SOCKS5_SERVER_SESSION_HPP
-#define SOCKS5_SERVER_SESSION_HPP
+#ifndef SOCKS5_SERVER_CLIENT_SESSION_HPP
+#define SOCKS5_SERVER_CLIENT_SESSION_HPP
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -13,10 +13,13 @@
 #include <iostream>
 #include <memory>
 
+#include "../config/config.hpp"
+
+
 namespace socks {
 
     using boost::asio::ip::tcp;
-    using boost::asio::ip::address_v4;
+    using boost::asio::ip::make_address_v4;
     using boost::asio::yield_context;
     using boost::asio::io_context;
     using boost::asio::async_write;
@@ -30,36 +33,30 @@ namespace socks {
     using boost::endian::big_to_native;
 
 
-    class session : public std::enable_shared_from_this<session> {
+    class client_session : public std::enable_shared_from_this<client_session> {
     public:
-        explicit session(tcp::socket client_socket, tcp::socket remote_socket, std::size_t buffer_size,
-                         std::size_t timeout);
+        explicit client_session(tcp::socket client_socket, tcp::socket remote_socket, const client_config &config);
 
         void start();
 
     private:
 
-        void echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<session>& self);
+        void
+        echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<client_session> &self);
 
         bool is_command_request_valid();
 
-        void resolve_domain_name(const yield_context &yield, error_code ec, uint8_t domain_name_length);
-
-        std::string socket_to_string(tcp::socket &socket, error_code ec);
-
-        std::string endpoint_to_string();
-
-        tcp_stream client_stream;
-        tcp_stream remote_stream;
+        tcp_stream stream;
+        tcp_stream server_stream;
         std::vector<uint8_t> client_buf;
         uint8_t connect_answer[2] = {0x05, 0xFF};
         uint8_t command_answer[10] = {0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
         tcp::endpoint ep;
         tcp::resolver resolver;
-        std::size_t buffer_size;
-        std::chrono::seconds timeout;
+        client_config config;
+        uint8_t server_message_length;
     };
 }
 
 
-#endif //SOCKS5_SERVER_SESSION_HPP
+#endif //SOCKS5_SERVER_CLIENT_SESSION_HPP
