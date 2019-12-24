@@ -8,9 +8,9 @@ namespace socks {
               resolver(client_socket.get_executor()),
               client_message_length(),
               c(config.secret_key, config.iv),
-              offset(sizeof(std::size_t)),
+              offset(sizeof(std::size_t) + c.DIGEST_SIZE),
               buffer_size(config.buffer_size),
-              enc_buffer_size(buffer_size + 16),
+              enc_buffer_size(buffer_size + c.CIPHER_BLOCK_SIZE),
               content_size(buffer_size - offset),
               timeout(config.timeout) {
     }
@@ -99,6 +99,10 @@ namespace socks {
             if (n == 0) {
                 return;
             }
+            if (c.verify_hmac(buf.data() + offset, n, &buf[sizeof(std::size_t)])) {
+                std::cout << "bad digest" << std::endl;
+                return;
+            }
             n = c.decrypt(buf.data() + offset, n, &dec_buf[0]);
             remote_stream.expires_after(timeout);
             async_write(remote_stream, boost::asio::buffer(dec_buf, n), yield[ec]);
@@ -124,6 +128,7 @@ namespace socks {
             n = c.encrypt(buf.data(), n, &enc_buf[offset]);
             std::cout << "to client " << n << std::endl;
             reinterpret_cast<std::size_t *>(&enc_buf[0])[0] = n;
+            memcpy(&enc_buf[sizeof(std::size_t)], c.get_hmac(&enc_buf[offset], n).data(), c.DIGEST_SIZE);
             client_stream.expires_after(timeout);
             async_write(client_stream, boost::asio::buffer(enc_buf, enc_buffer_size), yield[ec]);
             if (ec) {
