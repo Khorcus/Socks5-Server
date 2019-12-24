@@ -57,9 +57,13 @@ namespace socks {
         uint8_t answer[10] = {0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
         tcp::endpoint ep;
         tcp::resolver resolver;
-        server_config config;
         uint8_t client_message_length;
         crypto c;
+        std::size_t offset;
+        std::size_t buffer_size;
+        std::size_t enc_buffer_size;
+        std::size_t content_size;
+        std::chrono::seconds timeout;
     };
 }
 

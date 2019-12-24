@@ -6,9 +6,15 @@ namespace socks {
               server_stream(std::move(remote_socket)),
               client_buf(config.buffer_size),
               resolver(client_socket.get_executor()),
-              config(config),
               server_message_length(),
-              c(config.secret_key, config.iv) {
+              c(config.secret_key, config.iv),
+              offset(sizeof(std::size_t)),
+              buffer_size(config.buffer_size),
+              enc_buffer_size(buffer_size + 16),
+              content_size(buffer_size - offset),
+              timeout(config.timeout),
+              server_ip(config.server_ip),
+              server_port(config.server_port) {
     }
 
     void client_session::start() {
@@ -16,7 +22,7 @@ namespace socks {
         spawn(stream.get_executor(), [self](const yield_context &yield) {
             try {
                 error_code ec;
-                self->stream.expires_after(self->config.timeout);
+                self->stream.expires_after(self->timeout);
                 async_read(self->stream, buffer(self->client_buf, 2), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof)) {
@@ -30,7 +36,7 @@ namespace socks {
                     return;
                 }
                 uint8_t num_methods = self->client_buf[1];
-                self->stream.expires_after(self->config.timeout);
+                self->stream.expires_after(self->timeout);
                 async_read(self->stream, buffer(self->client_buf, num_methods), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof)) {
@@ -44,7 +50,7 @@ namespace socks {
                         break;
                     }
                 }
-                self->stream.expires_after(self->config.timeout);
+                self->stream.expires_after(self->timeout);
                 async_write(self->stream, buffer(self->connect_answer, 2), yield[ec]);
                 if (self->client_buf[1] == 0xFF) {
                     std::cout << "Connection request with unsupported METHOD: "
@@ -58,7 +64,7 @@ namespace socks {
                     }
                     return;
                 }
-                self->stream.expires_after(self->config.timeout);
+                self->stream.expires_after(self->timeout);
                 async_read(self->stream, buffer(self->client_buf, 4), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted && (ec != eof)) {
@@ -68,7 +74,7 @@ namespace socks {
                 }
                 if (self->is_command_request_valid()) {
                     if (self->client_buf[3] == 0x03) {
-                        self->stream.expires_after(self->config.timeout);
+                        self->stream.expires_after(self->timeout);
                         async_read(self->stream, buffer(self->client_buf, 1), yield[ec]);
                         if (ec) {
                             if (ec != operation_aborted && (ec != eof)) {
@@ -77,7 +83,7 @@ namespace socks {
                             return;
                         }
                         uint8_t domain_name_length = self->client_buf[0];
-                        self->stream.expires_after(self->config.timeout);
+                        self->stream.expires_after(self->timeout);
                         async_read(self->stream, buffer(self->client_buf, domain_name_length + 2), yield[ec]);
                         self->server_message_length = domain_name_length + 2;
                         if (ec) {
@@ -87,7 +93,7 @@ namespace socks {
                             return;
                         }
                     } else {
-                        self->stream.expires_after(self->config.timeout);
+                        self->stream.expires_after(self->timeout);
                         async_read(self->stream, buffer(self->client_buf, 6), yield[ec]);
                         self->server_message_length = 6;
                         if (ec) {
@@ -97,8 +103,8 @@ namespace socks {
                             return;
                         }
                     }
-                    self->ep = tcp::endpoint(make_address_v4(self->config.server_ip), self->config.server_port);
-                    self->server_stream.expires_after(self->config.timeout);
+                    self->ep = tcp::endpoint(make_address_v4(self->server_ip), self->server_port);
+                    self->server_stream.expires_after(self->timeout);
                     self->server_stream.async_connect(self->ep, yield[ec]);
                     if (ec) {
                         //TODO: Спросить про то, какой код выставить
@@ -107,7 +113,7 @@ namespace socks {
                 }
                 if (self->command_answer[1] == 0x00) {
                     self->client_buf.insert(self->client_buf.begin(), self->server_message_length);
-                    self->server_stream.expires_after(self->config.timeout);
+                    self->server_stream.expires_after(self->timeout);
                     async_write(self->server_stream, buffer(self->client_buf, self->server_message_length + 1),
                                 yield[ec]);
                     if (ec) {
@@ -117,7 +123,7 @@ namespace socks {
                         return;
                     }
 
-                    self->server_stream.expires_after(self->config.timeout);
+                    self->server_stream.expires_after(self->timeout);
                     async_read(self->server_stream, buffer(self->command_answer, 10), yield[ec]);
                     if (ec) {
                         if (ec != operation_aborted) {
@@ -126,7 +132,7 @@ namespace socks {
                         return;
                     }
                 }
-                self->stream.expires_after(self->config.timeout);
+                self->stream.expires_after(self->timeout);
                 async_write(self->stream, buffer(self->command_answer, 10), yield[ec]);
                 if (ec) {
                     if (ec != operation_aborted) {
@@ -148,20 +154,21 @@ namespace socks {
 
     void client_session::echo_from_server(const yield_context &yield) {
         error_code ec;
-        std::vector<uint8_t> buf(config.buffer_size + 18);
-        std::vector<uint8_t> dec_buf(config.buffer_size + 256);
         for (;;) {
-            server_stream.expires_after(config.timeout);
-            std::size_t n = server_stream.async_read_some(buffer(buf), yield[ec]);
-            std::cout << "from server "<< n << std::endl;
+            std::vector<uint8_t> buf(enc_buffer_size);
+            std::vector<uint8_t> dec_buf(enc_buffer_size);
+            server_stream.expires_after(timeout);
+            async_read(server_stream, buffer(buf, enc_buffer_size), yield[ec]);
+            std::size_t n = reinterpret_cast<std::size_t *>(&buf[0])[0];
+            std::cout << "from server " << n << std::endl;
             if (ec) {
                 return;
             }
             if (n == 0) {
                 return;
             }
-            n = c.decrypt(buf.data(), n, &dec_buf[0]);
-            stream.expires_after(config.timeout);
+            n = c.decrypt(buf.data() + offset, n, &dec_buf[0]);
+            stream.expires_after(timeout);
             async_write(stream, boost::asio::buffer(dec_buf, n), yield[ec]);
             if (ec) {
                 return;
@@ -171,10 +178,10 @@ namespace socks {
 
     void client_session::echo_to_server(const yield_context &yield) {
         error_code ec;
-        std::vector<uint8_t> buf(config.buffer_size);
-        std::vector<uint8_t> enc_buf(config.buffer_size + 256);
         for (;;) {
-            stream.expires_after(config.timeout);
+            std::vector<uint8_t> buf(content_size);
+            std::vector<uint8_t> enc_buf(enc_buffer_size);
+            stream.expires_after(timeout);
             std::size_t n = stream.async_read_some(buffer(buf), yield[ec]);
             if (ec) {
                 return;
@@ -182,10 +189,11 @@ namespace socks {
             if (n == 0) {
                 return;
             }
-            n = c.encrypt(buf.data(), n, &enc_buf[0]);
-            server_stream.expires_after(config.timeout);
+            n = c.encrypt(buf.data(), n, &enc_buf[offset]);
             std::cout << "to server " << n << std::endl;
-            async_write(server_stream, boost::asio::buffer(enc_buf, n), yield[ec]);
+            reinterpret_cast<std::size_t *>(&enc_buf[0])[0] = n;
+            server_stream.expires_after(timeout);
+            async_write(server_stream, boost::asio::buffer(enc_buf, enc_buffer_size), yield[ec]);
             if (ec) {
                 return;
             }

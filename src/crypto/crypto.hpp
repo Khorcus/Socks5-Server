@@ -2,6 +2,7 @@
 #define SOCKS5_SERVER_CRYPTO_HPP
 
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <iostream>
 #include <vector>
 
@@ -13,13 +14,13 @@ namespace socks {
 
         crypto(std::vector<uint8_t> key, std::vector<uint8_t> iv);
 
-        std::vector<uint8_t> get_hmac(std::vector<uint8_t> message);
+        std::vector<uint8_t> get_hmac(uint8_t *message, int message_length);
 
-        bool verify_hmac(std::vector<uint8_t> message, std::vector<uint8_t> digest);
+        bool verify_hmac(uint8_t *message, int message_length, const std::vector<uint8_t>& digest);
 
-        int decrypt(unsigned char *cipher_text, int cipher_text_len, unsigned char *plain_text);
+        int decrypt(uint8_t *cipher_text, int cipher_text_len, uint8_t *plain_text);
 
-        int encrypt(unsigned char *plain_text, int plain_text_len, unsigned char *cipher_text);
+        int encrypt(uint8_t *plain_text, int plain_text_len, uint8_t *cipher_text);
 
     private:
 
