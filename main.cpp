@@ -1,8 +1,33 @@
 #include <thread>
 #include "session.hpp"
-#include <boost/bind.hpp>
 
 using namespace socks;
+
+template<typename F>
+auto at_scope_exit(F &&f) {
+    using f_t = std::remove_cvref_t<F>;
+    static_assert(std::is_nothrow_destructible_v<f_t> &&
+                  std::is_nothrow_invocable_v<f_t>);
+    struct ase_t {
+        F f;
+
+        ase_t(F &&f)
+                : f(std::forward<F>(f)) {}
+
+        ase_t(const ase_t &) = default;
+
+        ase_t(ase_t &&) = delete;
+
+        ase_t operator=(const ase_t &) = delete;
+
+        ase_t operator=(ase_t &&) = delete;
+
+        ~ase_t() {
+            std::forward<F>(f)();
+        }
+    };
+    return ase_t{std::forward<F>(f)};
+}
 
 int main(int argc, char *argv[]) {
     try {
@@ -44,18 +69,19 @@ int main(int argc, char *argv[]) {
                   }
               });
 
-        std::vector<std::thread> threads;
+        std::vector<std::thread> thread_pool;
         std::size_t thread_count = std::atoi(argv[4]);
-
-        for (int n = 0; n < thread_count; ++n) {
-            threads.emplace_back(boost::bind(&boost::asio::io_context::run, &context));
-        }
-
-        for (auto &thread : threads) {
-            if (thread.joinable()) {
-                thread.join();
+        thread_pool.reserve(thread_count);
+        auto ase = at_scope_exit([&]() noexcept {
+            for (auto &t:thread_pool) {
+                t.join();
             }
-        }
+        });
+        for (size_t i = 0; i < thread_count; ++i)
+            thread_pool.emplace_back([&] {
+                context.run();
+            });
+        context.run();
     }
     catch (...) {
         std::cerr << boost::current_exception_diagnostic_information() << std::endl;
