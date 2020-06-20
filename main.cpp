@@ -1,11 +1,13 @@
+#include <thread>
 #include "session.hpp"
+#include <boost/bind.hpp>
 
 using namespace socks;
 
 int main(int argc, char *argv[]) {
     try {
-        if (argc != 4) {
-            std::cerr << "Usage: echo_server <port> <buffer size> <timeout>\n";
+        if (argc != 5) {
+            std::cerr << "Usage: echo_server <port> <buffer size> <timeout> <thread_count>" << std::endl;
             return 1;
         }
         io_context context;
@@ -42,7 +44,18 @@ int main(int argc, char *argv[]) {
                   }
               });
 
-        context.run();
+        std::vector<std::thread> threads;
+        std::size_t thread_count = std::atoi(argv[4]);
+
+        for (int n = 0; n < thread_count; ++n) {
+            threads.emplace_back(boost::bind(&boost::asio::io_context::run, &context));
+        }
+
+        for (auto &thread : threads) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
     }
     catch (...) {
         std::cerr << boost::current_exception_diagnostic_information() << std::endl;

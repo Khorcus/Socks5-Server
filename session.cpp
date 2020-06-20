@@ -23,6 +23,7 @@ namespace socks {
                     }
                     return;
                 }
+                std::cout << "Client trying to connect" << std::endl;
                 if (self->client_buf[0] != 0x05) {
                     std::cout << "Connection request with unsupported VER: " << (uint8_t) self->client_buf[0]
                               << std::endl;
@@ -43,6 +44,7 @@ namespace socks {
                         break;
                     }
                 }
+                std::cout << "Client connected" << std::endl;
                 self->client_stream.expires_after(self->timeout);
                 async_write(self->client_stream, buffer(self->connect_answer, 2), yield[ec]);
                 if (self->client_buf[1] == 0xFF) {
@@ -65,6 +67,7 @@ namespace socks {
                     }
                     return;
                 }
+                std::cout << "Client command requested" << std::endl;
                 if (self->is_command_request_valid()) {
                     if (self->client_buf[3] == 0x03) {
                         self->client_stream.expires_after(self->timeout);
@@ -104,6 +107,7 @@ namespace socks {
                     self->remote_stream.async_connect(self->ep, yield[ec]);
                     if (ec) {
                         //TODO: Спросить про то, какой код выставить
+                        std::cerr << "Failed to connect to remote server: " << ec.message() << std::endl;
                         self->command_answer[1] = 0x03;
                     }
                 }
@@ -144,6 +148,7 @@ namespace socks {
             if (ec) {
                 return;
             }
+//            std::cout << buf[0] << std::endl;
             dst.expires_after(self->timeout);
             dst.async_write_some(boost::asio::buffer(buf, n), yield[ec]);
             if (ec) {
@@ -201,7 +206,7 @@ namespace socks {
 
     std::string session::endpoint_to_string() {
         return ep.address().to_string() + " " +
-               std::to_string(big_to_native(ep.port()));
+               std::to_string(ep.port());
     }
 }
 
