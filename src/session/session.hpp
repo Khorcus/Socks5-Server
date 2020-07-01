@@ -32,22 +32,21 @@ namespace socks {
 
     class session : public std::enable_shared_from_this<session> {
     public:
-        explicit session(tcp::socket client_socket, tcp::socket remote_socket, std::size_t buffer_size,
-                         std::size_t timeout);
+        explicit session(tcp::socket client_socket, std::size_t buffer_size, std::size_t timeout);
 
         void start();
 
     private:
 
-        void echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<session>& self);
+        void echo(tcp_stream &src, tcp_stream &dst, const yield_context &yield, const std::shared_ptr<session> &self);
 
         bool is_command_request_valid();
 
         void resolve_domain_name(const yield_context &yield, error_code ec, uint8_t domain_name_length);
 
-        std::string socket_to_string(tcp::socket &socket, error_code ec);
+        std::string socket_to_string(tcp::socket &socket, error_code ec) const;
 
-        std::string endpoint_to_string();
+        std::string endpoint_to_string() const;
 
         tcp_stream client_stream;
         tcp_stream remote_stream;

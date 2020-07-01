@@ -1,9 +1,9 @@
 #include "session.hpp"
 
 namespace socks {
-    session::session(tcp::socket client_socket, tcp::socket remote_socket, std::size_t buffer_size, std::size_t timeout)
+    session::session(tcp::socket client_socket, std::size_t buffer_size, std::size_t timeout)
             : client_stream(std::move(client_socket)),
-              remote_stream(std::move(remote_socket)),
+              remote_stream(make_strand(client_socket.get_executor())),
               client_buf(buffer_size),
               resolver(client_socket.get_executor()),
               buffer_size(buffer_size),
@@ -23,7 +23,6 @@ namespace socks {
                     }
                     return;
                 }
-                std::cout << "Client trying to connect" << std::endl;
                 if (self->client_buf[0] != 0x05) {
                     std::cout << "Connection request with unsupported VER: " << (uint8_t) self->client_buf[0]
                               << std::endl;
@@ -44,7 +43,6 @@ namespace socks {
                         break;
                     }
                 }
-                std::cout << "Client connected" << std::endl;
                 self->client_stream.expires_after(self->timeout);
                 async_write(self->client_stream, buffer(self->connect_answer, 2), yield[ec]);
                 if (self->client_buf[1] == 0xFF) {
@@ -67,7 +65,6 @@ namespace socks {
                     }
                     return;
                 }
-                std::cout << "Client command requested" << std::endl;
                 if (self->is_command_request_valid()) {
                     if (self->client_buf[3] == 0x03) {
                         self->client_stream.expires_after(self->timeout);
@@ -97,16 +94,15 @@ namespace socks {
                             }
                             return;
                         }
-                        self->ep = tcp::endpoint(address_v4(big_to_native(*((uint32_t * ) & self->client_buf[0]))),
-                                                 big_to_native(*((uint16_t * ) & self->client_buf[4])));
+                        self->ep = tcp::endpoint(address_v4(big_to_native(*((uint32_t *) &self->client_buf[0]))),
+                                                 big_to_native(*((uint16_t *) &self->client_buf[4])));
                     }
                 }
                 if (self->command_answer[1] == 0x00) {
-                    std::cout << "Connecting to remote server: " << self->endpoint_to_string() << std::endl;
                     self->remote_stream.expires_after(self->timeout);
                     self->remote_stream.async_connect(self->ep, yield[ec]);
                     if (ec) {
-                        //TODO: Спросить про то, какой код выставить
+                        //TODO: Specify error code
                         std::cerr << "Failed to connect to remote server: " << ec.message() << std::endl;
                         self->command_answer[1] = 0x03;
                     }
@@ -143,13 +139,10 @@ namespace socks {
         error_code ec;
         std::vector<uint8_t> buf(buffer_size);
         for (;;) {
-            src.expires_after(self->timeout);
             std::size_t n = src.async_read_some(buffer(buf), yield[ec]);
             if (ec) {
                 return;
             }
-//            std::cout << buf[0] << std::endl;
-            dst.expires_after(self->timeout);
             dst.async_write_some(boost::asio::buffer(buf, n), yield[ec]);
             if (ec) {
                 return;
@@ -188,14 +181,14 @@ namespace socks {
         tcp::resolver::iterator endpoint_iterator = resolver.async_resolve(query, yield[ec]);
         if (ec) {
             std::cout << "Failed to resolve domain name" << std::endl;
-            //TODO: Спросить про то, какой код выставить
+            //TODO: Specify error code
             command_answer[1] = 0x03;
             return;
         }
         ep = *endpoint_iterator;
     }
 
-    std::string session::socket_to_string(tcp::socket &socket, error_code ec) {
+    std::string session::socket_to_string(tcp::socket &socket, error_code ec) const {
         tcp::endpoint endpoint = client_stream.socket().remote_endpoint(ec);
         if (ec) {
             return "closed socket";
@@ -204,7 +197,7 @@ namespace socks {
 
     }
 
-    std::string session::endpoint_to_string() {
+    std::string session::endpoint_to_string() const {
         return ep.address().to_string() + " " +
                std::to_string(ep.port());
     }
